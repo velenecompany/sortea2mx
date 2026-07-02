@@ -91,7 +91,7 @@ export default function PublicPage() {
     const segAngle = 360 / state.entries.length;
     const center = winnerIdx * segAngle + segAngle / 2;
     const jitter = (Math.random() - 0.5) * segAngle * 0.5;
-    const newRotation = rotation + 360 * 6 + (360 - center - jitter);
+    const newRotation = rotation + 360 * 6 + (270 - center - jitter);
     setRotation(newRotation);
 
     setTimeout(() => {

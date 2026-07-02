@@ -97,7 +97,7 @@ export default function CeoDashboard() {
     const winnerIdx = data.entries.findIndex((e) => e.id === data.winner?.id);
     const segAngle = 360 / state.entries.length;
     const center = winnerIdx * segAngle + segAngle / 2;
-    const newRotation = rotation + 360 * 6 + (360 - center);
+    const newRotation = rotation + 360 * 6 + (270 - center);
     setRotation(newRotation);
     setTimeout(() => {
       setState(data);
