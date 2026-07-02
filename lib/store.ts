@@ -5,13 +5,32 @@ import { DEFAULT_CONFIG, Entry, RaffleState } from "./types";
 // una función serverless es de solo lectura fuera de /tmp, así que eso
 // truena en producción (por eso el 500 en /api/raffle). Ahora vive en Neon.
 //
-// Todas las funciones exportadas tienen exactamente la misma firma que
-// antes — nada más cambió aquí, ninguna ruta ni componente se toca.
+// El cliente se crea perezosamente (solo la primera vez que se necesita),
+// no al importar el archivo. Si se crea al importar, Next.js truena el build
+// completo en cuanto intenta recolectar datos de la ruta, incluso si nunca
+// se llega a ejecutar una query — este patrón evita ese problema.
 
-const sql = neon(process.env.DATABASE_URL!);
+let _sql: ReturnType<typeof neon> | null = null;
+
+function getSql() {
+  if (!_sql) {
+    const url = process.env.DATABASE_URL;
+    if (!url) {
+      throw new Error(
+        "DATABASE_URL no está configurada. Revisa las Environment Variables en Vercel (o tu .env.local en desarrollo)."
+      );
+    }
+    _sql = neon(url);
+  }
+  return _sql;
+}
 
 async function ensureRow(): Promise<RaffleState> {
-  const rows = await sql`select config, entries from raffle_state where id = 1`;
+  const sql = getSql();
+  const rows = (await sql`select config, entries from raffle_state where id = 1`) as {
+    config: RaffleState["config"];
+    entries: Entry[];
+  }[];
 
   if (rows.length === 0) {
     await sql`
@@ -22,11 +41,12 @@ async function ensureRow(): Promise<RaffleState> {
     return { config: DEFAULT_CONFIG, entries: [] };
   }
 
-  const row = rows[0] as { config: RaffleState["config"]; entries: Entry[] };
+  const row = rows[0];
   return { config: row.config, entries: row.entries };
 }
 
 async function writeState(state: RaffleState) {
+  const sql = getSql();
   await sql`
     update raffle_state
     set config = ${JSON.stringify(state.config)}::jsonb,

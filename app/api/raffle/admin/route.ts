@@ -7,6 +7,8 @@ import {
   setForcedWinner,
 } from "@/lib/store";
 
+export const dynamic = "force-dynamic";
+
 // Esta ruta ya está protegida por middleware.ts (matcher /api/raffle/admin/:path*),
 // que valida la cookie de sesión antes de que el código de aquí abajo corra.
 
