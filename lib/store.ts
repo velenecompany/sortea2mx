@@ -1,40 +1,46 @@
-import fs from "node:fs/promises";
-import path from "node:path";
+import { neon } from "@neondatabase/serverless";
 import { DEFAULT_CONFIG, Entry, RaffleState } from "./types";
 
-// Almacenamiento simple en un archivo JSON local.
+// Antes esto escribía a un archivo JSON local. En Vercel el filesystem de
+// una función serverless es de solo lectura fuera de /tmp, así que eso
+// truena en producción (por eso el 500 en /api/raffle). Ahora vive en Neon.
 //
-// OJO: esto sirve perfecto en tu máquina (npm run dev), pero en Vercel el
-// filesystem de una función serverless es de solo lectura fuera de /tmp y no
-// se comparte entre invocaciones. Para producción real, este archivo es el
-// único que hay que cambiar: mismas funciones (getState, joinEntry, etc.),
-// pero leyendo/escribiendo en Neon en vez de en disco. Como ya usas Neon en
-// tus otros proyectos, es un swap directo cuando quieras llevarlo a prod.
+// Todas las funciones exportadas tienen exactamente la misma firma que
+// antes — nada más cambió aquí, ninguna ruta ni componente se toca.
 
-const DATA_FILE = path.join(process.cwd(), "data", "raffle-data.json");
+const sql = neon(process.env.DATABASE_URL!);
 
-async function ensureFile(): Promise<RaffleState> {
-  try {
-    const raw = await fs.readFile(DATA_FILE, "utf-8");
-    return JSON.parse(raw) as RaffleState;
-  } catch {
-    const initial: RaffleState = { config: DEFAULT_CONFIG, entries: [] };
-    await fs.mkdir(path.dirname(DATA_FILE), { recursive: true });
-    await fs.writeFile(DATA_FILE, JSON.stringify(initial, null, 2));
-    return initial;
+async function ensureRow(): Promise<RaffleState> {
+  const rows = await sql`select config, entries from raffle_state where id = 1`;
+
+  if (rows.length === 0) {
+    await sql`
+      insert into raffle_state (id, config, entries)
+      values (1, ${JSON.stringify(DEFAULT_CONFIG)}::jsonb, '[]'::jsonb)
+      on conflict (id) do nothing
+    `;
+    return { config: DEFAULT_CONFIG, entries: [] };
   }
+
+  const row = rows[0] as { config: RaffleState["config"]; entries: Entry[] };
+  return { config: row.config, entries: row.entries };
 }
 
 async function writeState(state: RaffleState) {
-  await fs.writeFile(DATA_FILE, JSON.stringify(state, null, 2));
+  await sql`
+    update raffle_state
+    set config = ${JSON.stringify(state.config)}::jsonb,
+        entries = ${JSON.stringify(state.entries)}::jsonb
+    where id = 1
+  `;
 }
 
 export async function getState(): Promise<RaffleState> {
-  return ensureFile();
+  return ensureRow();
 }
 
 export async function joinEntry(name: string): Promise<RaffleState> {
-  const state = await ensureFile();
+  const state = await ensureRow();
   if (state.config.status === "drawn") return state;
 
   const trimmed = name.trim();
@@ -53,7 +59,7 @@ export async function joinEntry(name: string): Promise<RaffleState> {
 }
 
 export async function importInstagram(names: string[]): Promise<RaffleState> {
-  const state = await ensureFile();
+  const state = await ensureRow();
   const existing = new Set(state.entries.map((e) => e.name.toLowerCase()));
 
   for (const raw of names) {
@@ -74,7 +80,7 @@ export async function importInstagram(names: string[]): Promise<RaffleState> {
 }
 
 export async function removeEntry(id: string): Promise<RaffleState> {
-  const state = await ensureFile();
+  const state = await ensureRow();
   state.entries = state.entries.filter((e) => e.id !== id);
   state.entries.forEach((e, i) => (e.number = i + 1));
   await writeState(state);
@@ -84,21 +90,21 @@ export async function removeEntry(id: string): Promise<RaffleState> {
 export async function saveConfig(
   partial: Partial<RaffleState["config"]>
 ): Promise<RaffleState> {
-  const state = await ensureFile();
+  const state = await ensureRow();
   state.config = { ...state.config, ...partial };
   await writeState(state);
   return state;
 }
 
 export async function setForcedWinner(entryId: string | null): Promise<RaffleState> {
-  const state = await ensureFile();
+  const state = await ensureRow();
   state.config.forcedWinnerId = entryId;
   await writeState(state);
   return state;
 }
 
 export async function drawWinner(): Promise<{ state: RaffleState; winner: Entry | null }> {
-  const state = await ensureFile();
+  const state = await ensureRow();
   if (state.entries.length === 0 || state.config.status === "drawn") {
     return { state, winner: null };
   }
@@ -114,7 +120,7 @@ export async function drawWinner(): Promise<{ state: RaffleState; winner: Entry 
 }
 
 export async function resetRaffle(): Promise<RaffleState> {
-  const state = await ensureFile();
+  const state = await ensureRow();
   state.entries = [];
   state.config.status = "open";
   state.config.winnerEntryId = null;
