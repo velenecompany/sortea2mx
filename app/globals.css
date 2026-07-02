@@ -2,26 +2,46 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+html,
+body {
+  padding: 0;
+  margin: 0;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer components {
+  .input {
+    @apply w-full px-3 py-2.5 bg-[#0d0d0d] border border-[#2a2a26] text-ink text-[13.5px] focus:outline-none focus:border-line;
+  }
+  .btn-main {
+    @apply py-3 px-4 bg-line text-bg font-bold text-xs uppercase tracking-wide disabled:bg-[#333] disabled:text-[#777];
+  }
+  .btn-out {
+    @apply py-3 px-4 border border-lineDim text-ink font-bold text-xs uppercase tracking-wide;
+  }
+  .radio-row {
+    @apply flex items-center gap-2 py-1.5 text-xs border-b border-dashed border-[#232320];
   }
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+@keyframes fall {
+  to {
+    transform: translateY(105vh) rotate(540deg);
+    opacity: 0.9;
+  }
 }
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
+.confetti-piece {
+  position: fixed;
+  top: -12px;
+  width: 8px;
+  height: 14px;
+  z-index: 60;
+  pointer-events: none;
+  animation: fall linear forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .confetti-piece {
+    display: none;
   }
 }
