@@ -254,10 +254,6 @@ export default function RafflePage() {
         <Link href="/" className="underline text-line">
           Ver todos los sorteos
         </Link>
-        {" · "}
-        <Link href="/ceo" className="underline text-line">
-          Panel de creadores
-        </Link>
       </div>
     </div>
   );

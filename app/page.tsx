@@ -34,41 +34,37 @@ export default function HomePage() {
         <p className="text-sm text-mut">Cargando…</p>
       ) : raffles.length === 0 ? (
         <div className="bg-card border-2 border-[#232320] p-6 text-center">
-          <p className="text-sm text-[#c8c8c2] mb-3">Todavía no hay sorteos.</p>
-          <Link href="/ceo" className="text-line underline text-sm">
-            Crea el primero desde el panel de creadores
-          </Link>
+          <p className="text-sm text-[#c8c8c2]">Todavía no hay sorteos.</p>
         </div>
       ) : (
-        <div className="grid sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {raffles.map((r) => (
             <Link
               key={r.slug}
               href={`/r/${r.slug}`}
-              className="bg-card border-2 border-[#232320] p-5 hover:border-line transition-colors block"
+              className="bg-card border-2 border-[#232320] p-5 hover:border-line transition-colors flex flex-col justify-between min-h-[140px]"
             >
-              <div className="flex justify-between items-start mb-3">
+              <div className="flex justify-between items-start mb-3 gap-2">
                 <span
-                  className={`text-[10px] font-bold uppercase tracking-wide border px-2 py-1 ${
+                  className={`text-[10px] font-bold uppercase tracking-wide border px-2 py-1 whitespace-nowrap ${
                     r.status === "drawn" ? "border-lineDim text-mut" : "border-line text-line"
                   }`}
                 >
                   {r.status === "drawn" ? "Sorteado" : "Abierto"}
                 </span>
-                <span className="text-[10px] text-mut">{r.entryCount} participantes</span>
+                <span className="text-[10px] text-mut text-right">{r.entryCount} participantes</span>
               </div>
-              <div className="font-display text-2xl leading-none mb-1">{r.title}</div>
-              <div className="text-pink text-sm font-bold">{r.prize}</div>
+              <div>
+                <div className="font-display text-2xl leading-none mb-1">{r.title}</div>
+                <div className="text-pink text-sm font-bold">{r.prize}</div>
+              </div>
             </Link>
           ))}
         </div>
       )}
 
       <div className="text-center mt-8 text-[11px] text-mut">
-        sortea2mx no guarda pagos ni datos sensibles ·{" "}
-        <Link href="/ceo" className="underline text-line">
-          Panel de creadores
-        </Link>
+        sortea2mx no guarda pagos ni datos sensibles
       </div>
     </div>
   );
