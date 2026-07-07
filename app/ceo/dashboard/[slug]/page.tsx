@@ -17,6 +17,8 @@ export default function CeoRaffleDashboard() {
 
   const [state, setState] = useState<RaffleState | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [origin, setOrigin] = useState("");
   const [form, setForm] = useState({ title: "", prize: "", description: "", mode: "directo", drawAt: "" });
   const [igList, setIgList] = useState("");
   const [rotation, setRotation] = useState(0);
@@ -55,6 +57,10 @@ export default function CeoRaffleDashboard() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
 
   async function saveConfig() {
     const data = await adminAction("saveConfig", {
@@ -96,6 +102,17 @@ export default function CeoRaffleDashboard() {
     if (!confirm(`Esto elimina "${state?.config.title}" por completo, incluyendo participantes. ¿Seguro?`)) return;
     await adminAction("delete");
     router.push("/ceo/dashboard");
+  }
+
+  async function copyLink() {
+    const url = `${origin}/r/${slug}`;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      // algunos navegadores en http (no https) bloquean el clipboard API
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2200);
   }
 
   async function logout() {
@@ -152,6 +169,24 @@ export default function CeoRaffleDashboard() {
         <button onClick={logout} className="border border-lineDim px-3 py-2 text-[10px] uppercase tracking-wide">
           Salir
         </button>
+      </div>
+
+      <div className="bg-card border-2 border-line p-5 mb-4">
+        <h2 className="font-display text-lg mb-2">Compartir</h2>
+        <p className="text-[13px] text-[#c8c8c2] mb-3">
+          Manda este link a donde quieras — quien lo abra puede entrar directo al sorteo.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <input
+            readOnly
+            value={`${origin}/r/${slug}`}
+            onFocus={(e) => e.target.select()}
+            className="input flex-1 text-line"
+          />
+          <button onClick={copyLink} className="btn-main whitespace-nowrap">
+            {copied ? "¡Copiado! ✔" : "Copiar link"}
+          </button>
+        </div>
       </div>
 
       <div className="lg:grid lg:grid-cols-[1fr_380px] lg:gap-6 lg:items-start">
