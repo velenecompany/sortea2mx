@@ -15,6 +15,9 @@ body {
   .btn-main {
     @apply py-3 px-4 bg-line text-bg font-bold text-xs uppercase tracking-wide disabled:bg-[#333] disabled:text-[#777];
   }
+  .btn-block {
+    @apply w-full;
+  }
   .btn-out {
     @apply py-3 px-4 border border-lineDim text-ink font-bold text-xs uppercase tracking-wide;
   }

@@ -1,5 +1,5 @@
 import { neon } from "@neondatabase/serverless";
-import { Entry, NewRaffleInput, RaffleConfig, RaffleState, RaffleSummary } from "./types";
+import { Entry, NewRaffleInput, RaffleConfig, RaffleState, RaffleSummary, User } from "./types";
 
 // Cliente perezoso: se crea solo la primera vez que se usa, no al importar
 // el archivo (si se crea al importar, Next.js truena el build si la env var
@@ -42,6 +42,7 @@ type RaffleRow = {
   winner_entry_id: string | null;
   forced_winner_id: string | null;
   created_at: string;
+  user_id: string | null;
 };
 
 type EntryRow = {
@@ -64,6 +65,7 @@ function rowToConfig(row: RaffleRow): RaffleConfig {
     winnerEntryId: row.winner_entry_id,
     forcedWinnerId: row.forced_winner_id,
     createdAt: row.created_at,
+    userId: row.user_id,
   };
 }
 
@@ -98,13 +100,13 @@ export async function listRaffles(): Promise<RaffleSummary[]> {
   }));
 }
 
-export async function createRaffle(input: NewRaffleInput): Promise<RaffleConfig> {
+export async function createRaffle(input: NewRaffleInput, userId: string | null = null): Promise<RaffleConfig> {
   const sql = getSql();
   const slug = slugify(input.title);
 
   const rows = (await sql`
-    insert into raffles (slug, title, prize, description, mode)
-    values (${slug}, ${input.title}, ${input.prize}, ${input.description}, ${input.mode})
+    insert into raffles (slug, title, prize, description, mode, user_id)
+    values (${slug}, ${input.title}, ${input.prize}, ${input.description}, ${input.mode}, ${userId})
     returning *
   `) as RaffleRow[];
 
@@ -249,4 +251,58 @@ export async function resetRaffle(slug: string): Promise<RaffleState | null> {
     where slug = ${slug}
   `;
   return getState(slug);
+}
+
+// ---------- Usuarios (cuentas de creador, separadas del PIN de /ceo) ----------
+
+export async function createUser(email: string, passwordHash: string): Promise<User> {
+  const sql = getSql();
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  await sql`insert into users (id, email, password_hash) values (${id}, ${email.toLowerCase()}, ${passwordHash})`;
+  return { id, email: email.toLowerCase() };
+}
+
+export async function getUserByEmail(
+  email: string
+): Promise<{ id: string; email: string; passwordHash: string } | null> {
+  const sql = getSql();
+  const rows = (await sql`
+    select id, email, password_hash from users where email = ${email.toLowerCase()}
+  `) as { id: string; email: string; password_hash: string }[];
+  if (rows.length === 0) return null;
+  return { id: rows[0].id, email: rows[0].email, passwordHash: rows[0].password_hash };
+}
+
+export async function getUserById(id: string): Promise<User | null> {
+  const sql = getSql();
+  const rows = (await sql`select id, email from users where id = ${id}`) as User[];
+  return rows.length > 0 ? rows[0] : null;
+}
+
+export async function listRafflesByUser(userId: string): Promise<RaffleSummary[]> {
+  const sql = getSql();
+  const rows = (await sql`
+    select r.slug, r.title, r.prize, r.status, r.created_at,
+           count(e.id)::int as entry_count
+    from raffles r
+    left join raffle_entries e on e.raffle_slug = r.slug
+    where r.user_id = ${userId}
+    group by r.slug, r.title, r.prize, r.status, r.created_at
+    order by r.created_at desc
+  `) as { slug: string; title: string; prize: string; status: string; created_at: string; entry_count: number }[];
+
+  return rows.map((r) => ({
+    slug: r.slug,
+    title: r.title,
+    prize: r.prize,
+    status: r.status as RaffleSummary["status"],
+    entryCount: r.entry_count,
+    createdAt: r.created_at,
+  }));
+}
+
+export async function isOwnedBy(slug: string, userId: string): Promise<boolean> {
+  const sql = getSql();
+  const rows = (await sql`select user_id from raffles where slug = ${slug}`) as { user_id: string | null }[];
+  return rows.length > 0 && rows[0].user_id === userId;
 }

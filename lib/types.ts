@@ -22,6 +22,12 @@ export interface RaffleConfig {
   winnerEntryId: string | null;
   forcedWinnerId: string | null;
   createdAt: string;
+  userId: string | null;
+}
+
+export interface User {
+  id: string;
+  email: string;
 }
 
 export interface RaffleState {
