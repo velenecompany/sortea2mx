@@ -135,7 +135,11 @@ export async function getState(slug: string): Promise<RaffleState | null> {
   };
 }
 
-export async function joinEntry(slug: string, name: string): Promise<RaffleState | null> {
+export async function joinEntry(
+  slug: string,
+  name: string,
+  ip: string | null
+): Promise<RaffleState | null> {
   const sql = getSql();
   const state = await getState(slug);
   if (!state || state.config.status === "drawn") return state;
@@ -143,12 +147,23 @@ export async function joinEntry(slug: string, name: string): Promise<RaffleState
   const trimmed = name.trim();
   if (!trimmed) return state;
 
+  if (ip) {
+    const dup = (await sql`
+      select id from raffle_entries
+      where raffle_slug = ${slug} and ip = ${ip} and source = 'manual'
+      limit 1
+    `) as { id: string }[];
+    if (dup.length > 0) {
+      throw new Error("DUPLICATE_IP");
+    }
+  }
+
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const number = state.entries.length + 1;
 
   await sql`
-    insert into raffle_entries (id, raffle_slug, name, number, source, ts)
-    values (${id}, ${slug}, ${trimmed}, ${number}, 'manual', ${Date.now()})
+    insert into raffle_entries (id, raffle_slug, name, number, source, ts, ip)
+    values (${id}, ${slug}, ${trimmed}, ${number}, 'manual', ${Date.now()}, ${ip})
   `;
 
   return getState(slug);

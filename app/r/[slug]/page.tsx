@@ -43,8 +43,8 @@ export default function RafflePage() {
   const [notFound, setNotFound] = useState(false);
   const [name, setName] = useState("");
   const [confirmMsg, setConfirmMsg] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
   const [rotation, setRotation] = useState(0);
-  const [spinning, setSpinning] = useState(false);
   const [, forceTick] = useState(0);
 
   const load = useCallback(async () => {
@@ -69,6 +69,7 @@ export default function RafflePage() {
   async function join() {
     const trimmed = name.trim();
     if (!trimmed || !state || state.config.status === "drawn") return;
+    setJoinError(null);
     const res = await fetch(`/api/raffle/${slug}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -80,34 +81,23 @@ export default function RafflePage() {
       setName("");
       setConfirmMsg(true);
       setTimeout(() => setConfirmMsg(false), 2500);
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setJoinError(data.error || "No se pudo registrar tu participación.");
     }
   }
 
-  async function spin() {
-    if (!state || state.entries.length === 0 || state.config.status === "drawn" || spinning) return;
-
-    const scheduled = state.config.drawAt && new Date(state.config.drawAt).getTime() > Date.now();
-    if (scheduled) return;
-
-    setSpinning(true);
-    const res = await fetch(`/api/raffle/${slug}/draw`, { method: "POST" });
-    if (!res.ok) {
-      setSpinning(false);
-      return;
-    }
-    const data: RaffleState & { winner: RaffleState["entries"][number] | null } = await res.json();
-    const winnerIdx = data.entries.findIndex((e) => e.id === data.winner?.id);
+  // Cuando el sorteo ya se realizó (el creador lo disparó desde su panel),
+  // la ruleta se posiciona directo en el ganador — aquí nadie puede girarla.
+  useEffect(() => {
+    if (!state || state.config.status !== "drawn" || !state.config.winnerEntryId) return;
+    const winnerIdx = state.entries.findIndex((e) => e.id === state.config.winnerEntryId);
+    if (winnerIdx === -1) return;
     const segAngle = 360 / state.entries.length;
     const center = winnerIdx * segAngle + segAngle / 2;
-    const jitter = (Math.random() - 0.5) * segAngle * 0.5;
-    const newRotation = rotation + 360 * 6 + (270 - center - jitter);
-    setRotation(newRotation);
-
-    setTimeout(() => {
-      setState(data);
-      setSpinning(false);
-    }, 4600);
-  }
+    setRotation(360 * 3 + (270 - center));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state?.config.status]);
 
   if (notFound) {
     return (
@@ -198,6 +188,7 @@ export default function RafflePage() {
                   Quiero participar
                 </button>
                 {confirmMsg && <div className="mt-2.5 text-xs text-line">Listo, ya estás dentro ✔</div>}
+                {joinError && <div className="mt-2.5 text-xs text-pink">{joinError}</div>}
               </div>
             ) : (
               <div className="bg-card border-2 border-[#232320] p-5 lg:p-6 mb-4">
@@ -236,13 +227,20 @@ export default function RafflePage() {
           <div className="my-2.5">
             <Wheel entries={entries} rotation={rotation} />
           </div>
-          <button
-            onClick={spin}
-            disabled={entries.length === 0 || config.status === "drawn" || !!scheduled}
-            className="w-full py-3 px-5 bg-line text-bg font-bold text-xs uppercase tracking-wide disabled:bg-[#333] disabled:text-[#777]"
-          >
-            {config.status === "drawn" ? "Sorteo cerrado" : scheduled ? "Aún no es hora" : "Girar la ruleta"}
-          </button>
+
+          {config.status === "drawn" ? (
+            <div className="w-full py-3 px-5 text-center text-xs uppercase tracking-wide text-mut border border-lineDim">
+              Sorteo cerrado
+            </div>
+          ) : scheduled ? (
+            <div className="w-full py-3 px-5 text-center text-xs uppercase tracking-wide text-mut border border-lineDim">
+              Se sortea el {new Date(config.drawAt as string).toLocaleString()}
+            </div>
+          ) : (
+            <div className="w-full py-3 px-5 text-center text-xs uppercase tracking-wide text-mut border border-lineDim">
+              El sorteo lo realiza el creador
+            </div>
+          )}
 
           {config.status === "drawn" && config.winnerEntryId && (
             <WinnerBox entries={entries} winnerId={config.winnerEntryId} />

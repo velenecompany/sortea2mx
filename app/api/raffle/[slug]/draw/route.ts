@@ -1,12 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
-import { drawWinner } from "@/lib/store";
+import { verifyUserToken } from "@/lib/auth";
+import { isValidSessionToken } from "@/lib/session";
+import { drawWinner, isOwnedBy } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
-// Pública a propósito: cualquiera puede disparar el sorteo. Lo que decide
-// el resultado sigue siendo privado (forcedWinnerId, fijado solo desde /ceo).
+// Ya no es pública: solo tú (PIN de /ceo) o el dueño de la cuenta que creó
+// este sorteo pueden dispararlo. Los participantes solo ven el resultado.
 export async function POST(req: NextRequest, { params }: { params: { slug: string } }) {
   try {
+    const ceoToken = req.cookies.get("ceo_session")?.value;
+    const isCeo = await isValidSessionToken(ceoToken);
+
+    if (!isCeo) {
+      const userToken = req.cookies.get("user_session")?.value;
+      const userId = await verifyUserToken(userToken);
+      const owned = userId ? await isOwnedBy(params.slug, userId) : false;
+      if (!owned) {
+        return NextResponse.json({ error: "No autorizado" }, { status: 403 });
+      }
+    }
+
     const { state, winner } = await drawWinner(params.slug);
     if (!state) {
       return NextResponse.json({ error: "Sorteo no encontrado" }, { status: 404 });
