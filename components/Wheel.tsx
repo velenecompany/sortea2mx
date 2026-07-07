@@ -12,7 +12,7 @@ interface WheelProps {
   className?: string; // controla el tamaño visual, ej. "w-[260px] lg:w-[320px]"
 }
 
-export default function Wheel({ entries, rotation, size = 320, className = "w-[260px] sm:w-[300px] lg:w-[320px]" }: WheelProps) {
+export default function Wheel({ entries, rotation, size = 380, className = "w-[280px] sm:w-[320px] lg:w-[340px]" }: WheelProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -37,7 +37,9 @@ export default function Wheel({ entries, rotation, size = 320, className = "w-[2
     }
 
     const segAngle = (Math.PI * 2) / entries.length;
-    const showLabels = entries.length <= 20;
+    const showLabels = entries.length <= 110;
+    const labelFontSize =
+      entries.length > 90 ? 5 : entries.length > 60 ? 6 : entries.length > 40 ? 7 : entries.length > 24 ? 8 : entries.length > 12 ? 9 : 10;
 
     entries.forEach((en, i) => {
       const start = i * segAngle;
@@ -59,8 +61,9 @@ export default function Wheel({ entries, rotation, size = 320, className = "w-[2
         ctx.rotate(mid);
         const bg = COLORS[i % COLORS.length];
         ctx.fillStyle = bg === "#131313" || bg === "#0A0A0A" ? "#F2F2ED" : "#0A0A0A";
-        ctx.font = "10px monospace";
-        const label = en.name.length > 12 ? en.name.slice(0, 11) + "…" : en.name;
+        ctx.font = `${labelFontSize}px monospace`;
+        const maxChars = entries.length > 90 ? 4 : entries.length > 60 ? 5 : entries.length > 40 ? 7 : entries.length > 24 ? 9 : 12;
+        const label = en.name.length > maxChars ? en.name.slice(0, maxChars - 1) + "…" : en.name;
 
         // En la mitad izquierda del círculo el texto queda de cabeza si no se
         // corrige: se le da media vuelta extra y se dibuja del otro lado.
