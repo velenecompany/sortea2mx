@@ -1,15 +1,9 @@
 import { neon } from "@neondatabase/serverless";
-import { DEFAULT_CONFIG, Entry, RaffleState } from "./types";
+import { Entry, NewRaffleInput, RaffleConfig, RaffleState, RaffleSummary } from "./types";
 
-// Antes esto escribía a un archivo JSON local. En Vercel el filesystem de
-// una función serverless es de solo lectura fuera de /tmp, así que eso
-// truena en producción (por eso el 500 en /api/raffle). Ahora vive en Neon.
-//
-// El cliente se crea perezosamente (solo la primera vez que se necesita),
-// no al importar el archivo. Si se crea al importar, Next.js truena el build
-// completo en cuanto intenta recolectar datos de la ruta, incluso si nunca
-// se llega a ejecutar una query — este patrón evita ese problema.
-
+// Cliente perezoso: se crea solo la primera vez que se usa, no al importar
+// el archivo (si se crea al importar, Next.js truena el build si la env var
+// no está disponible en ese momento, aunque nunca se llegue a usar).
 let _sql: ReturnType<typeof neon> | null = null;
 
 function getSql() {
@@ -25,126 +19,234 @@ function getSql() {
   return _sql;
 }
 
-async function ensureRow(): Promise<RaffleState> {
+function slugify(title: string): string {
+  const base = title
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // quita acentos
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  const suffix = Math.random().toString(36).slice(2, 6);
+  return `${base || "sorteo"}-${suffix}`;
+}
+
+type RaffleRow = {
+  slug: string;
+  title: string;
+  prize: string;
+  description: string;
+  mode: string;
+  draw_at: string | null;
+  status: string;
+  winner_entry_id: string | null;
+  forced_winner_id: string | null;
+  created_at: string;
+};
+
+type EntryRow = {
+  id: string;
+  name: string;
+  number: number;
+  source: string;
+  ts: string; // bigint vuelve como string en el driver
+};
+
+function rowToConfig(row: RaffleRow): RaffleConfig {
+  return {
+    slug: row.slug,
+    title: row.title,
+    prize: row.prize,
+    description: row.description,
+    mode: row.mode as RaffleConfig["mode"],
+    drawAt: row.draw_at,
+    status: row.status as RaffleConfig["status"],
+    winnerEntryId: row.winner_entry_id,
+    forcedWinnerId: row.forced_winner_id,
+    createdAt: row.created_at,
+  };
+}
+
+function rowToEntry(row: EntryRow): Entry {
+  return {
+    id: row.id,
+    name: row.name,
+    number: row.number,
+    source: row.source as Entry["source"],
+    ts: Number(row.ts),
+  };
+}
+
+export async function listRaffles(): Promise<RaffleSummary[]> {
   const sql = getSql();
-  const rows = (await sql`select config, entries from raffle_state where id = 1`) as {
-    config: RaffleState["config"];
-    entries: Entry[];
-  }[];
+  const rows = (await sql`
+    select r.slug, r.title, r.prize, r.status, r.created_at,
+           count(e.id)::int as entry_count
+    from raffles r
+    left join raffle_entries e on e.raffle_slug = r.slug
+    group by r.slug, r.title, r.prize, r.status, r.created_at
+    order by r.created_at desc
+  `) as { slug: string; title: string; prize: string; status: string; created_at: string; entry_count: number }[];
 
-  if (rows.length === 0) {
-    await sql`
-      insert into raffle_state (id, config, entries)
-      values (1, ${JSON.stringify(DEFAULT_CONFIG)}::jsonb, '[]'::jsonb)
-      on conflict (id) do nothing
-    `;
-    return { config: DEFAULT_CONFIG, entries: [] };
-  }
-
-  const row = rows[0];
-  return { config: row.config, entries: row.entries };
+  return rows.map((r) => ({
+    slug: r.slug,
+    title: r.title,
+    prize: r.prize,
+    status: r.status as RaffleSummary["status"],
+    entryCount: r.entry_count,
+    createdAt: r.created_at,
+  }));
 }
 
-async function writeState(state: RaffleState) {
+export async function createRaffle(input: NewRaffleInput): Promise<RaffleConfig> {
   const sql = getSql();
-  await sql`
-    update raffle_state
-    set config = ${JSON.stringify(state.config)}::jsonb,
-        entries = ${JSON.stringify(state.entries)}::jsonb
-    where id = 1
-  `;
+  const slug = slugify(input.title);
+
+  const rows = (await sql`
+    insert into raffles (slug, title, prize, description, mode)
+    values (${slug}, ${input.title}, ${input.prize}, ${input.description}, ${input.mode})
+    returning *
+  `) as RaffleRow[];
+
+  return rowToConfig(rows[0]);
 }
 
-export async function getState(): Promise<RaffleState> {
-  return ensureRow();
+export async function deleteRaffle(slug: string): Promise<void> {
+  const sql = getSql();
+  await sql`delete from raffles where slug = ${slug}`;
 }
 
-export async function joinEntry(name: string): Promise<RaffleState> {
-  const state = await ensureRow();
-  if (state.config.status === "drawn") return state;
+export async function getState(slug: string): Promise<RaffleState | null> {
+  const sql = getSql();
+  const raffleRows = (await sql`select * from raffles where slug = ${slug}`) as RaffleRow[];
+  if (raffleRows.length === 0) return null;
+
+  const entryRows = (await sql`
+    select id, name, number, source, ts from raffle_entries
+    where raffle_slug = ${slug}
+    order by number asc
+  `) as EntryRow[];
+
+  return {
+    config: rowToConfig(raffleRows[0]),
+    entries: entryRows.map(rowToEntry),
+  };
+}
+
+export async function joinEntry(slug: string, name: string): Promise<RaffleState | null> {
+  const sql = getSql();
+  const state = await getState(slug);
+  if (!state || state.config.status === "drawn") return state;
 
   const trimmed = name.trim();
   if (!trimmed) return state;
 
-  const entry: Entry = {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    name: trimmed,
-    number: state.entries.length + 1,
-    source: "manual",
-    ts: Date.now(),
-  };
-  state.entries.push(entry);
-  await writeState(state);
-  return state;
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const number = state.entries.length + 1;
+
+  await sql`
+    insert into raffle_entries (id, raffle_slug, name, number, source, ts)
+    values (${id}, ${slug}, ${trimmed}, ${number}, 'manual', ${Date.now()})
+  `;
+
+  return getState(slug);
 }
 
-export async function importInstagram(names: string[]): Promise<RaffleState> {
-  const state = await ensureRow();
+export async function importInstagram(slug: string, names: string[]): Promise<RaffleState | null> {
+  const sql = getSql();
+  const state = await getState(slug);
+  if (!state) return null;
+
   const existing = new Set(state.entries.map((e) => e.name.toLowerCase()));
+  let next = state.entries.length + 1;
 
   for (const raw of names) {
     const name = raw.trim();
     if (!name || existing.has(name.toLowerCase())) continue;
-    state.entries.push({
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      name,
-      number: state.entries.length + 1,
-      source: "instagram",
-      ts: Date.now(),
-    });
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    await sql`
+      insert into raffle_entries (id, raffle_slug, name, number, source, ts)
+      values (${id}, ${slug}, ${name}, ${next}, 'instagram', ${Date.now()})
+    `;
     existing.add(name.toLowerCase());
+    next++;
   }
 
-  await writeState(state);
-  return state;
+  return getState(slug);
 }
 
-export async function removeEntry(id: string): Promise<RaffleState> {
-  const state = await ensureRow();
-  state.entries = state.entries.filter((e) => e.id !== id);
-  state.entries.forEach((e, i) => (e.number = i + 1));
-  await writeState(state);
-  return state;
+export async function removeEntry(slug: string, id: string): Promise<RaffleState | null> {
+  const sql = getSql();
+  await sql`delete from raffle_entries where id = ${id} and raffle_slug = ${slug}`;
+
+  // renumerar para no dejar huecos
+  const rows = (await sql`
+    select id from raffle_entries where raffle_slug = ${slug} order by number asc
+  `) as { id: string }[];
+
+  for (let i = 0; i < rows.length; i++) {
+    await sql`update raffle_entries set number = ${i + 1} where id = ${rows[i].id}`;
+  }
+
+  return getState(slug);
 }
 
 export async function saveConfig(
-  partial: Partial<RaffleState["config"]>
-): Promise<RaffleState> {
-  const state = await ensureRow();
-  state.config = { ...state.config, ...partial };
-  await writeState(state);
-  return state;
+  slug: string,
+  partial: Partial<Pick<RaffleConfig, "title" | "prize" | "description" | "mode" | "drawAt">>
+): Promise<RaffleState | null> {
+  const sql = getSql();
+  const current = await getState(slug);
+  if (!current) return null;
+
+  const next = { ...current.config, ...partial };
+
+  await sql`
+    update raffles
+    set title = ${next.title},
+        prize = ${next.prize},
+        description = ${next.description},
+        mode = ${next.mode},
+        draw_at = ${next.drawAt}
+    where slug = ${slug}
+  `;
+
+  return getState(slug);
 }
 
-export async function setForcedWinner(entryId: string | null): Promise<RaffleState> {
-  const state = await ensureRow();
-  state.config.forcedWinnerId = entryId;
-  await writeState(state);
-  return state;
+export async function setForcedWinner(slug: string, entryId: string | null): Promise<RaffleState | null> {
+  const sql = getSql();
+  await sql`update raffles set forced_winner_id = ${entryId} where slug = ${slug}`;
+  return getState(slug);
 }
 
-export async function drawWinner(): Promise<{ state: RaffleState; winner: Entry | null }> {
-  const state = await ensureRow();
-  if (state.entries.length === 0 || state.config.status === "drawn") {
+export async function drawWinner(
+  slug: string
+): Promise<{ state: RaffleState | null; winner: Entry | null }> {
+  const state = await getState(slug);
+  if (!state || state.entries.length === 0 || state.config.status === "drawn") {
     return { state, winner: null };
   }
 
+  const sql = getSql();
   const forced = state.entries.find((e) => e.id === state.config.forcedWinnerId);
   const winner = forced ?? state.entries[Math.floor(Math.random() * state.entries.length)];
 
-  state.config.status = "drawn";
-  state.config.winnerEntryId = winner.id;
-  await writeState(state);
+  await sql`
+    update raffles set status = 'drawn', winner_entry_id = ${winner.id} where slug = ${slug}
+  `;
 
-  return { state, winner };
+  const updated = await getState(slug);
+  return { state: updated, winner };
 }
 
-export async function resetRaffle(): Promise<RaffleState> {
-  const state = await ensureRow();
-  state.entries = [];
-  state.config.status = "open";
-  state.config.winnerEntryId = null;
-  state.config.forcedWinnerId = null;
-  await writeState(state);
-  return state;
+export async function resetRaffle(slug: string): Promise<RaffleState | null> {
+  const sql = getSql();
+  await sql`delete from raffle_entries where raffle_slug = ${slug}`;
+  await sql`
+    update raffles
+    set status = 'open', winner_entry_id = null, forced_winner_id = null
+    where slug = ${slug}
+  `;
+  return getState(slug);
 }

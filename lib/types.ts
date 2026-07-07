@@ -12,6 +12,7 @@ export type RaffleMode = "directo" | "instagram";
 export type RaffleStatus = "open" | "drawn";
 
 export interface RaffleConfig {
+  slug: string;
   title: string;
   prize: string;
   description: string;
@@ -20,6 +21,7 @@ export interface RaffleConfig {
   status: RaffleStatus;
   winnerEntryId: string | null;
   forcedWinnerId: string | null;
+  createdAt: string;
 }
 
 export interface RaffleState {
@@ -27,13 +29,18 @@ export interface RaffleState {
   entries: Entry[];
 }
 
-export const DEFAULT_CONFIG: RaffleConfig = {
-  title: "Rifa sortea2mx",
-  prize: "Premio sorpresa",
-  description: "Un boleto, una oportunidad.",
-  mode: "directo",
-  drawAt: null,
-  status: "open",
-  winnerEntryId: null,
-  forcedWinnerId: null,
-};
+export interface RaffleSummary {
+  slug: string;
+  title: string;
+  prize: string;
+  status: RaffleStatus;
+  entryCount: number;
+  createdAt: string;
+}
+
+export interface NewRaffleInput {
+  title: string;
+  prize: string;
+  description: string;
+  mode: RaffleMode;
+}
