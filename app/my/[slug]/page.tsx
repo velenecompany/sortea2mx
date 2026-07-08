@@ -23,6 +23,7 @@ export default function MyRaffleDashboard() {
   const [igList, setIgList] = useState("");
   const [rotation, setRotation] = useState(0);
   const [spinning, setSpinning] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const adminAction = useCallback(
     async (action: string, extra: Record<string, unknown> = {}) => {
@@ -31,7 +32,16 @@ export default function MyRaffleDashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, ...extra }),
       });
-      if (!res.ok) throw new Error("Acción falló");
+      if (!res.ok) {
+        if (res.status === 401) {
+          throw new Error("Tu sesión expiró. Vuelve a iniciar sesión.");
+        }
+        if (res.status === 403) {
+          throw new Error("Este sorteo no es tuyo.");
+        }
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "La acción falló.");
+      }
       return res.json();
     },
     [slug]
@@ -63,45 +73,65 @@ export default function MyRaffleDashboard() {
   }, []);
 
   async function saveConfig() {
-    const data = await adminAction("saveConfig", {
-      config: {
-        title: form.title,
-        prize: form.prize,
-        description: form.description,
-        mode: form.mode,
-        drawAt: form.drawAt ? new Date(form.drawAt).toISOString() : null,
-      },
-    });
-    setState(data);
+    setActionError(null);
+    try {
+      const data = await adminAction("saveConfig", {
+        config: {
+          title: form.title,
+          prize: form.prize,
+          description: form.description,
+          mode: form.mode,
+          drawAt: form.drawAt ? new Date(form.drawAt).toISOString() : null,
+        },
+      });
+      setState(data);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "La acción falló.");
+    }
   }
 
   async function importIg() {
-    const data = await adminAction("importInstagram", { names: igList });
-    setState(data);
-    setIgList("");
+    setActionError(null);
+    try {
+      const data = await adminAction("importInstagram", { names: igList });
+      setState(data);
+      setIgList("");
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "La acción falló.");
+    }
   }
 
   async function removeEntry(id: string) {
-    const data = await adminAction("removeEntry", { id });
-    setState(data);
-  }
-
-  async function setForcedWinner(entryId: string) {
-    const data = await adminAction("setForcedWinner", { entryId: entryId || null });
-    setState(data);
+    setActionError(null);
+    try {
+      const data = await adminAction("removeEntry", { id });
+      setState(data);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "La acción falló.");
+    }
   }
 
   async function reset() {
     if (!confirm("Esto borra a todos los participantes y reinicia el sorteo. ¿Seguro?")) return;
-    const data = await adminAction("reset");
-    setState(data);
-    setRotation(0);
+    setActionError(null);
+    try {
+      const data = await adminAction("reset");
+      setState(data);
+      setRotation(0);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "La acción falló.");
+    }
   }
 
   async function deleteRaffle() {
     if (!confirm(`Esto elimina "${state?.config.title}" por completo, incluyendo participantes. ¿Seguro?`)) return;
-    await adminAction("delete");
-    router.push("/");
+    setActionError(null);
+    try {
+      await adminAction("delete");
+      router.push("/");
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "La acción falló.");
+    }
   }
 
   async function copyLink() {
@@ -170,6 +200,10 @@ export default function MyRaffleDashboard() {
           Salir
         </button>
       </div>
+
+      {actionError && (
+        <div className="bg-card border-2 border-pink text-pink text-xs p-3 mb-4">{actionError}</div>
+      )}
 
       <div className="bg-card border-2 border-line p-5 mb-4">
         <h2 className="font-display text-lg mb-2">Compartir</h2>
@@ -283,35 +317,6 @@ export default function MyRaffleDashboard() {
         </div>
 
         <div className="lg:sticky lg:top-8">
-          <Section title="Elegir ganador de todos">
-            <p className="text-[13px] text-[#c8c8c2] mb-2.5">
-              Opcional. Si eliges a alguien aquí, la ruleta siempre caerá en esa persona sin importar
-              el giro — nadie más que tú puede ver esta selección.
-            </p>
-            <div className="max-h-40 overflow-y-auto">
-              <label className="radio-row">
-                <input
-                  type="radio"
-                  name="wp"
-                  checked={!config.forcedWinnerId}
-                  onChange={() => setForcedWinner("")}
-                />
-                Aleatorio (sin elegir)
-              </label>
-              {entries.map((en) => (
-                <label key={en.id} className="radio-row">
-                  <input
-                    type="radio"
-                    name="wp"
-                    checked={config.forcedWinnerId === en.id}
-                    onChange={() => setForcedWinner(en.id)}
-                  />
-                  #{pad(en.number)} — {en.name}
-                </label>
-              ))}
-            </div>
-          </Section>
-
           <div className="bg-card border-2 border-[#232320] p-6 flex flex-col items-center mb-4">
             <h2 className="font-display text-lg mb-3 self-start">Ruleta</h2>
             <div className="my-2.5">

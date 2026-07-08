@@ -7,7 +7,6 @@ import {
   removeEntry,
   resetRaffle,
   saveConfig,
-  setForcedWinner,
 } from "@/lib/store";
 
 export async function POST(req: NextRequest, { params }: { params: { slug: string } }) {
@@ -42,10 +41,6 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
       }
       case "removeEntry": {
         const state = await removeEntry(slug, body.id);
-        return NextResponse.json(state);
-      }
-      case "setForcedWinner": {
-        const state = await setForcedWinner(slug, body.entryId || null);
         return NextResponse.json(state);
       }
       case "reset": {
