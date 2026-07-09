@@ -10,6 +10,19 @@ function pad(n: number) {
   return String(n).padStart(4, "0");
 }
 
+function burstConfetti() {
+  const colors = ["#C6FF3D", "#FF3D8A", "#F2F2ED"];
+  for (let i = 0; i < 90; i++) {
+    const p = document.createElement("div");
+    p.className = "confetti-piece";
+    p.style.left = Math.random() * 100 + "vw";
+    p.style.background = colors[Math.floor(Math.random() * colors.length)];
+    p.style.animationDuration = 2 + Math.random() * 1.5 + "s";
+    document.body.appendChild(p);
+    setTimeout(() => p.remove(), 3800);
+  }
+}
+
 export default function CeoRaffleDashboard() {
   const params = useParams<{ slug: string }>();
   const slug = params.slug;
@@ -23,6 +36,8 @@ export default function CeoRaffleDashboard() {
   const [igList, setIgList] = useState("");
   const [rotation, setRotation] = useState(0);
   const [spinning, setSpinning] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [winnerModal, setWinnerModal] = useState<{ name: string; number: number } | null>(null);
 
   const adminAction = useCallback(
     async (action: string, extra: Record<string, unknown> = {}) => {
@@ -31,7 +46,13 @@ export default function CeoRaffleDashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, ...extra }),
       });
-      if (!res.ok) throw new Error("Acción falló");
+      if (!res.ok) {
+        if (res.status === 401) {
+          throw new Error("Tu sesión de /ceo expiró. Vuelve a entrar con tu PIN.");
+        }
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "La acción falló.");
+      }
       return res.json();
     },
     [slug]
@@ -63,45 +84,88 @@ export default function CeoRaffleDashboard() {
   }, []);
 
   async function saveConfig() {
-    const data = await adminAction("saveConfig", {
-      config: {
-        title: form.title,
-        prize: form.prize,
-        description: form.description,
-        mode: form.mode,
-        drawAt: form.drawAt ? new Date(form.drawAt).toISOString() : null,
-      },
-    });
-    setState(data);
+    setActionError(null);
+    try {
+      const data = await adminAction("saveConfig", {
+        config: {
+          title: form.title,
+          prize: form.prize,
+          description: form.description,
+          mode: form.mode,
+          drawAt: form.drawAt ? new Date(form.drawAt).toISOString() : null,
+        },
+      });
+      setState(data);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "La acción falló.");
+    }
   }
 
   async function importIg() {
-    const data = await adminAction("importInstagram", { names: igList });
-    setState(data);
-    setIgList("");
+    setActionError(null);
+    try {
+      const data = await adminAction("importInstagram", { names: igList });
+      setState(data);
+      setIgList("");
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "La acción falló.");
+    }
   }
 
   async function removeEntry(id: string) {
-    const data = await adminAction("removeEntry", { id });
-    setState(data);
+    setActionError(null);
+    try {
+      const data = await adminAction("removeEntry", { id });
+      setState(data);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "La acción falló.");
+    }
   }
 
   async function setForcedWinner(entryId: string) {
-    const data = await adminAction("setForcedWinner", { entryId: entryId || null });
-    setState(data);
+    setActionError(null);
+    try {
+      const data = await adminAction("setForcedWinner", { entryId: entryId || null });
+      setState(data);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "La acción falló.");
+    }
   }
 
   async function reset() {
     if (!confirm("Esto borra a todos los participantes y reinicia el sorteo. ¿Seguro?")) return;
-    const data = await adminAction("reset");
-    setState(data);
-    setRotation(0);
+    setActionError(null);
+    try {
+      const data = await adminAction("reset");
+      setState(data);
+      setRotation(0);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "La acción falló.");
+    }
+  }
+
+  async function reopenDraw() {
+    if (!confirm("Esto reabre el sorteo para volver a girar la ruleta. Los participantes NO se borran. ¿Seguro?"))
+      return;
+    setActionError(null);
+    try {
+      const data = await adminAction("reopenDraw");
+      setState(data);
+      setRotation(0);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "La acción falló.");
+    }
   }
 
   async function deleteRaffle() {
     if (!confirm(`Esto elimina "${state?.config.title}" por completo, incluyendo participantes. ¿Seguro?`)) return;
-    await adminAction("delete");
-    router.push("/ceo/dashboard");
+    setActionError(null);
+    try {
+      await adminAction("delete");
+      router.push("/ceo/dashboard");
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "La acción falló.");
+    }
   }
 
   async function copyLink() {
@@ -137,6 +201,10 @@ export default function CeoRaffleDashboard() {
     setTimeout(() => {
       setState(data);
       setSpinning(false);
+      if (data.winner) {
+        setWinnerModal({ name: data.winner.name, number: data.winner.number });
+        burstConfetti();
+      }
     }, 4600);
   }
 
@@ -170,6 +238,10 @@ export default function CeoRaffleDashboard() {
           Salir
         </button>
       </div>
+
+      {actionError && (
+        <div className="bg-card border-2 border-pink text-pink text-xs p-3 mb-4">{actionError}</div>
+      )}
 
       <div className="bg-card border-2 border-line p-5 mb-4">
         <h2 className="font-display text-lg mb-2">Compartir</h2>
@@ -326,6 +398,17 @@ export default function CeoRaffleDashboard() {
             </button>
           </div>
 
+          {config.status === "drawn" && (
+            <Section title="">
+              <button
+                onClick={reopenDraw}
+                className="w-full py-3 border-2 border-line text-line font-bold text-xs uppercase tracking-wide"
+              >
+                Sortear de nuevo (mantener participantes)
+              </button>
+            </Section>
+          )}
+
           <Section title="">
             <button onClick={reset} className="w-full py-3 border-2 border-pink text-pink font-bold text-xs uppercase tracking-wide">
               Reiniciar sorteo (borra participantes)
@@ -333,6 +416,20 @@ export default function CeoRaffleDashboard() {
           </Section>
         </div>
       </div>
+
+      {winnerModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-5">
+          <div className="bg-card border-2 border-line p-8 max-w-sm w-full text-center">
+            <div className="text-[10px] tracking-widest uppercase text-line mb-2">¡Felicidades!</div>
+            <div className="font-display text-3xl mb-2 leading-tight">{winnerModal.name}</div>
+            <div className="text-sm text-[#c8c8c2] mb-1">ganó el sorteo</div>
+            <div className="text-xs text-mut mb-6">Boleto #{pad(winnerModal.number)}</div>
+            <button onClick={() => setWinnerModal(null)} className="btn-main w-full">
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

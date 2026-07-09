@@ -5,6 +5,7 @@ import {
   importInstagram,
   isOwnedBy,
   removeEntry,
+  reopenForRedraw,
   resetRaffle,
   saveConfig,
 } from "@/lib/store";
@@ -45,6 +46,10 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
       }
       case "reset": {
         const state = await resetRaffle(slug);
+        return NextResponse.json(state);
+      }
+      case "reopenDraw": {
+        const state = await reopenForRedraw(slug);
         return NextResponse.json(state);
       }
       case "delete": {

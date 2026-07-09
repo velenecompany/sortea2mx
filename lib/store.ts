@@ -268,6 +268,17 @@ export async function resetRaffle(slug: string): Promise<RaffleState | null> {
   return getState(slug);
 }
 
+// Reabre el sorteo para volver a girar la ruleta SIN borrar a los
+// participantes ya inscritos. Deja forced_winner_id como estaba, por si el
+// creador quiere que vuelva a caer en la misma persona o eligió a otra.
+export async function reopenForRedraw(slug: string): Promise<RaffleState | null> {
+  const sql = getSql();
+  await sql`
+    update raffles set status = 'open', winner_entry_id = null where slug = ${slug}
+  `;
+  return getState(slug);
+}
+
 // ---------- Usuarios (cuentas de creador, separadas del PIN de /ceo) ----------
 
 export async function createUser(email: string, passwordHash: string): Promise<User> {

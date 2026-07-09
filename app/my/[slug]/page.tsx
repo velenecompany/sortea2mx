@@ -10,6 +10,19 @@ function pad(n: number) {
   return String(n).padStart(4, "0");
 }
 
+function burstConfetti() {
+  const colors = ["#C6FF3D", "#FF3D8A", "#F2F2ED"];
+  for (let i = 0; i < 90; i++) {
+    const p = document.createElement("div");
+    p.className = "confetti-piece";
+    p.style.left = Math.random() * 100 + "vw";
+    p.style.background = colors[Math.floor(Math.random() * colors.length)];
+    p.style.animationDuration = 2 + Math.random() * 1.5 + "s";
+    document.body.appendChild(p);
+    setTimeout(() => p.remove(), 3800);
+  }
+}
+
 export default function MyRaffleDashboard() {
   const params = useParams<{ slug: string }>();
   const slug = params.slug;
@@ -23,6 +36,7 @@ export default function MyRaffleDashboard() {
   const [igList, setIgList] = useState("");
   const [rotation, setRotation] = useState(0);
   const [spinning, setSpinning] = useState(false);
+  const [winnerModal, setWinnerModal] = useState<{ name: string; number: number } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const adminAction = useCallback(
@@ -123,6 +137,19 @@ export default function MyRaffleDashboard() {
     }
   }
 
+  async function reopenDraw() {
+    if (!confirm("Esto reabre el sorteo para volver a girar la ruleta. Los participantes NO se borran. ¿Seguro?"))
+      return;
+    setActionError(null);
+    try {
+      const data = await adminAction("reopenDraw");
+      setState(data);
+      setRotation(0);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "La acción falló.");
+    }
+  }
+
   async function deleteRaffle() {
     if (!confirm(`Esto elimina "${state?.config.title}" por completo, incluyendo participantes. ¿Seguro?`)) return;
     setActionError(null);
@@ -167,6 +194,10 @@ export default function MyRaffleDashboard() {
     setTimeout(() => {
       setState(data);
       setSpinning(false);
+      if (data.winner) {
+        setWinnerModal({ name: data.winner.name, number: data.winner.number });
+        burstConfetti();
+      }
     }, 4600);
   }
 
@@ -331,6 +362,17 @@ export default function MyRaffleDashboard() {
             </button>
           </div>
 
+          {config.status === "drawn" && (
+            <Section title="">
+              <button
+                onClick={reopenDraw}
+                className="w-full py-3 border-2 border-line text-line font-bold text-xs uppercase tracking-wide"
+              >
+                Sortear de nuevo (mantener participantes)
+              </button>
+            </Section>
+          )}
+
           <Section title="">
             <button onClick={reset} className="w-full py-3 border-2 border-pink text-pink font-bold text-xs uppercase tracking-wide">
               Reiniciar sorteo (borra participantes)
@@ -338,6 +380,20 @@ export default function MyRaffleDashboard() {
           </Section>
         </div>
       </div>
+
+      {winnerModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-5">
+          <div className="bg-card border-2 border-line p-8 max-w-sm w-full text-center">
+            <div className="text-[10px] tracking-widest uppercase text-line mb-2">¡Felicidades!</div>
+            <div className="font-display text-3xl mb-2 leading-tight">{winnerModal.name}</div>
+            <div className="text-sm text-[#c8c8c2] mb-1">ganó el sorteo</div>
+            <div className="text-xs text-mut mb-6">Boleto #{pad(winnerModal.number)}</div>
+            <button onClick={() => setWinnerModal(null)} className="btn-main w-full">
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

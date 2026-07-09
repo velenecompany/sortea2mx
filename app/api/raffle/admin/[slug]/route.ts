@@ -3,6 +3,7 @@ import {
   deleteRaffle,
   importInstagram,
   removeEntry,
+  reopenForRedraw,
   resetRaffle,
   saveConfig,
   setForcedWinner,
@@ -38,6 +39,10 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
       }
       case "reset": {
         const state = await resetRaffle(slug);
+        return NextResponse.json(state);
+      }
+      case "reopenDraw": {
+        const state = await reopenForRedraw(slug);
         return NextResponse.json(state);
       }
       case "delete": {
